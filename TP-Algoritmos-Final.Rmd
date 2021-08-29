@@ -1,0 +1,349 @@
+---
+output: html_document
+---
+# Análisis comparativo entre la movilidad y la mortalidad por COVID-19 en la Ciudad de Buenos Aires y en Argentina
+# Creado: 2021-04-23
+# Versión final: 2021-05-13
+# Autores: Grupo "ALG05" Integrantes: Carla Campetella, Belen Franco, Florencia Federico, Manuel Cuesta, Guillermo Epszteyn, Matias Balian
+
+  
+
+```{r}
+# Archivos de input se pueden bajar de: 
+# i) Movilidad: https://covid19.apple.com/mobility
+# ii) Muertes por país: https://raw.githubusercontent.com/owid/covid-19-data/master/public/data/jhu/
+# iii) Datos COVID CABA: https://cdn.buenosaires.gob.ar/datosabiertos/datasets/salud/casos-covid-19/casos_covid19.csv
+
+##install.packages("astsa", "zoo")
+library(astsa)
+library(ggplot2)
+library(ggrepel)
+library(plotly)
+library(readr)
+library(sqldf)
+library(grid)
+library(lubridate)
+library(RColorBrewer)
+library(htmlwidgets)
+library(tidyverse)
+library(data.table)
+library(tidyr)
+library(readr)
+library(dplyr) 
+library(corrplot)
+```
+
+```{r}
+############################################## Leer
+# time_series_covid19_deaths_global.csv (archivo contiene las muertes por pais)
+
+
+URL <- "https://raw.githubusercontent.com/owid/covid-19-data/master/public/data/jhu/"
+url_archivo1  <- paste(URL,"new_deaths.csv", sep = "")
+Muertesxpais  <- read.csv(url_archivo1, sep = ",", header = T)
+
+```
+
+##Analisis de datos y variables
+
+```{r}
+# preparo los datos
+
+colnames(Muertesxpais)
+```
+
+#Para poder analizar correctamente los datos editamos el formato de la informacion: se unica por pais con funcion la "gather" generando la nueva variable "muertes" que sumará las cantidades (aplica desde la columna 2 hasta el final)
+##Luego, nombramos las columnas
+
+```{r}
+Muertesxpais2  <- Muertesxpais %>% gather(pais, muertes, 2:ncol(Muertesxpais))
+colnames(Muertesxpais2) <- c("fecha", "pais", "muertes")
+
+colnames(Muertesxpais2)
+```
+
+#Se filtra solamente las muertes en Argentina y luego se modifica el formato del campo fecha a date
+
+```{r}
+Country = "Argentina"
+MuertesArgentina <- subset(Muertesxpais2, pais == Country)
+
+MuertesArgentina$fecha <- as.Date(MuertesArgentina$fecha)
+```
+
+#Luego, tomaremos de otra fuente la información especifica de CABA. 
+#Como la misma se encuentra caso por caso con su respectiva fecha, 
+#debemos quedarnos solo con los casos fallecidos 
+#y luego manipular los datos para poder contar por dia los casos encontrados.
+
+```{r}
+url_caba <- "https://cdn.buenosaires.gob.ar/datosabiertos/datasets/salud/casos-covid-19/casos_covid19.csv"
+casosCaba  <- read.csv(url_caba, sep = ",", header = T)
+
+#para levantar local: casosCaba  <- read.csv('casos_covid19.csv', sep = ",", header = T)
+
+
+columnas=c('fecha_fallecimiento')
+
+fallecidocaba=subset(casosCaba, fallecido == 'si' & provincia == "CABA" & clasificacion== 'confirmado',select=columnas)
+head(fallecidocaba)
+```
+
+```{r}
+fallecidocaba$mes <- substr(fallecidocaba$fecha_fallecimiento,3,5)
+fallecidocaba$dia <- substr(fallecidocaba$fecha_fallecimiento,1,2)
+fallecidocaba$año <- substr(fallecidocaba$fecha_fallecimiento,6,9)
+```
+
+##Modificamos la variable para aplicar valor numerico al mes
+
+```{r}
+fallecidocaba <- fallecidocaba  %>%  
+  mutate(mes  = case_when(.$mes =="JAN" ~ "01",
+                          .$mes =="FEB" ~ "02",
+                          .$mes =="MAR" ~ "03",
+                          .$mes =="APR" ~ "04",
+                          .$mes =="MAY" ~ "05",
+                          .$mes =="JUN" ~ "06",
+                          .$mes =="JUL" ~ "07",
+                          .$mes =="AUG" ~ "08",
+                          .$mes =="SEP" ~ "09",
+                          .$mes =="OCT" ~ "10",
+                          .$mes =="NOV" ~ "11",
+                          .$mes =="DEC" ~ "12",
+  )) 
+```
+
+##Volvemos a armar la fecha y Vemos los valores unicos
+
+```{r}
+fallecidocaba$fechamuerte=paste(fallecidocaba$dia,fallecidocaba$mes,fallecidocaba$año,sep='-')
+unique(fallecidocaba$fechamuerte)
+```
+##Formateamos el campo a un campo del tipo fecha
+
+```{r}
+fallecidocaba$fecha <- as.Date(fallecidocaba$fechamuerte, format = "%d-%m-%Y")
+str(fallecidocaba$fecha)
+```
+
+##Creamos un nuevo dataset con la suma de la cantidad de casos por día del resultado anterior, luego consultamos los casos totales
+```{r}
+casos_por_fecha <- fallecidocaba %>% group_by(fecha) %>% summarise(n=n())
+sum(casos_por_fecha$n)
+
+```
+
+##Ahora necesitamos acceder a los datos de la movilidad otorgada por apple. Dado que el set de datos tarda bastante de descargar, hemos descargado el archivo y accedemos al mismo de manera local.  
+```{r}
+mobility_url <- "https://covid19-static.cdn-apple.com/covid19-mobility-data/2107HotfixDev20/v3/en-us/applemobilitytrends-2021-05-12.csv"
+mobility   <- read.csv(mobility_url , sep = ",", header = T)
+
+#opción para levantarlo local
+#mobility <- read.csv("applemobilitytrends-2021-05-12.csv" , sep = ",", header = T)
+```
+
+##Preparamos los datos transformandolos en factor
+
+```{r}
+mobility$geo_type              <- as.factor(mobility$geo_type)
+mobility$region                <- as.factor(mobility$region)
+mobility$transportation_type   <- as.factor(mobility$transportation_type)
+colnames(mobility)
+```
+
+##Pasamos las fechas de columnas a filas y luego editamos el formato
+
+```{r}
+datos_v   <- mobility %>% gather(fecha, tasa, 7:ncol(mobility))
+
+datos_v$fecha <- as.Date(datos_v$fecha, format = "X%Y.%m.%d")
+colnames(datos_v)
+```
+##Nos quedamos con los datos de CABA y Argentina de movilidad anteriormente accedida. Además, totalizamos los casos. Creamos variables y les asignamos los datos de CABA y Argentina pero está pensado para poder reutilizarlo para cualquier país/región.
+
+```{r}
+CABA = "Buenos Aires"
+columnas2=c('fecha', 'tasa')
+datosmovilidadCABA <- subset(datos_v, region == CABA, select = columnas2)
+datosmovilidadCABA <- datosmovilidadCABA %>% group_by(fecha) %>% summarise(tasa=mean(tasa))
+
+pais = "Argentina"
+datosmovilidadArg <- subset(datos_v, region == pais, select = columnas2)
+datosmovilidadArg <- datosmovilidadArg %>% group_by(fecha) %>% summarise(tasa=mean(tasa))
+```
+
+####Análisis CABA####
+
+#Revisamos datos estadísticos básicos
+
+```{r}
+summary(datosmovilidadCABA$tasa)
+summary(casos_por_fecha$n)
+```
+
+#Buscamos si se observa una correlación simple entre las variables tasa de movilidad y fallecidos x día
+
+```{r}
+DSunico <- merge(casos_por_fecha, datosmovilidadCABA)
+graph <- ggplot(data=DSunico, 
+                aes (x=tasa , y=n))+geom_point(color='purple', size=2, alpha=4)
+
+geom_abline(na.rm=TRUE, color = "blue")
+ggplotly(graph)
+```
+
+##Vemos el coeficiente de correlacion: se observa una nula correlacion de -0.02
+
+```{r}
+cor(x=DSunico$tasa, y=DSunico$n, method='pearson', use='pairwise.complete.obs')  
+##esto ultimo se agrega ya que hay valores nulos, y la corr no lidia con ellos
+```
+
+#Buscamos si la tasa de correlación mejora 
+#desfasando el día de la muerte respecto del día de movilidad
+
+
+
+##Filtramos valores nulos
+
+```{r}
+##DSunico <- DSunico[!DSunico$tasa == "NA",]
+DSunico <- na.omit(DSunico)
+
+```
+
+##Generamos las nuevas variables de time series: tasa.ts y n.ts para poder armar el grafico con Lag y evaluar el impacto de la movilidad en la tasa de muertes
+
+```{r}
+tasa.ts <- ts(DSunico$tasa, start=1 , end =469, frequency = 1)
+n.ts <- ts(DSunico$n, start = 1 , end = 469, frequency = 1)
+
+```
+
+##Generamos grid de graficos con lag de T=0 hasta T=-14 (para la variable tasa movilidad)
+##Ya que primero hay un cambio en la movilidad que impacta con un lag en los casos o muertes. 
+
+```{r}
+astsa::lag2.plot(DSunico$tasa, DSunico$n, 14)
+```
+#No parece haber una correlacion significativa en ninguno de los casos planteados en CABA.
+
+#Se desarrolla el gráfico de ambas curvas para su análisis visual
+
+##Graficamos con ggplot y ggplotly (interactivo)
+
+#Primero sin lag.
+
+```{r}
+h = ggplot() +
+  geom_line(data = datosmovilidadCABA,  aes(x = fecha, y=tasa ), color = "red") +
+  geom_line(data = casos_por_fecha, aes( x = fecha, y=n ), color = "blue") +
+  xlab('Fecha') +
+  ylab('Movilidad') +
+  scale_x_date(date_breaks = "15 day", date_labels =  "%d %b") +
+  scale_y_continuous(sec.axis = sec_axis(~., name = "Fallecidos")) +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1, size = 7)) 
+
+ggplotly(h) 
+
+```
+#Con un lag de 14 días, como sugieren profesionales médicos para el análisis.
+
+```{r}
+library(zoo)
+Movilidad<-zooreg(DSunico$tasa, start=65, end=469, frequency =1, deltat=1)
+Muertes<-zooreg(DSunico$n, start=41, end=469, frequency =1, deltat=1)
+
+autoplot(cbind(Movilidad, Muertes), facet= NULL)
+```
+
+
+###Análisis Argentina###
+
+#El dato del 1/10/2021 es un outlier producido por la demora en la carga de fallecimientos, 
+#lo ajustamos a los fines del trabajo reemplazándolo por la media entre el día anterior y el posterior
+
+```{r}
+fallecidos011020 <- (MuertesArgentina$muertes[MuertesArgentina$fecha=="2020-09-30"]+MuertesArgentina$muertes[MuertesArgentina$fecha=="2020-10-02"])/2
+MuertesArgentina$muertes[MuertesArgentina$fecha=="2020-10-01"]<-fallecidos011020
+```
+
+##Correlacion muertes y movilidad Argentina
+##Unimos 2 datasets para poder correlacionar en forma directa
+```{r}
+DSunico2 <- merge(MuertesArgentina, datosmovilidadArg)
+
+```
+
+##Hacemos el scatterplot de la correlacion
+
+```{r}
+graph <- ggplot(data=DSunico2, aes (x=tasa , y=muertes))+geom_point(  color='purple', size=2, alpha=4)
+
+geom_abline(na.rm=TRUE, color = "blue")
+ggplotly(graph)
+```
+
+##Hacemos el calculo numerico de la correlacion con la funcion cor. 
+#Aqui, a diferencia del grafico de CABA anterior, se observa cierta correlacion positiva para toda Argentina. De todos modos la correlacion de 0.35 es bastante insignificante para explicar una relacion.
+
+```{r}
+cor(x=DSunico2$tasa, y=DSunico2$muertes, method='pearson', use='pairwise.complete.obs')  
+##esto ultimo se agrega ya que hay valores nulos, y la corr no lidia con ellos
+```
+##Correlacion con desfase de fechas Lag. Intentaremos ver correlaciones con desfase de tasa de movilidad
+
+##Filtramos donde haya valores nulos
+
+```{r}
+##DSunico2 <- DSunico2[!DSunico2$tasa == "NA",]
+##DSunico2 <- DSunico2[!DSunico2$muertes == "NA",]
+DSunico2 <- na.omit(DSunico2)
+
+```
+
+##Armamos la serie de tiempo de cada variable .ts  
+
+```{r}  
+tasa2.ts <- ts(DSunico2$tasa, start=65 , end =469, frequency = 1)
+muertes.ts <- ts(DSunico2$muertes, start = 65 , end = 469, frequency = 1)
+```
+
+##Armamos la grid con los graficos desfasados para la tasa hasta T=-14. 
+#Vemos que existe un aumento de las muertes con aumento de la movilidad a nivel pais, pero no alcanza niveles estadisticamente significativos (entre 0.16 y 0.29 de acuerdo a los dias de desfase elegidos)
+#Además, resulta sospechoso que la correlación resulte más alta sin desfasaje, que con el desfasaje sugerido por los profesionales
+
+```{r}
+astsa::lag2.plot(DSunico2$tasa, DSunico2$muertes, 14)
+```
+
+##Vemos el grafico
+
+#Sin desfasaje
+
+```{r}
+p = ggplot() +
+  geom_line(data = datosmovilidadArg,  aes(x = fecha, y=tasa ), color = "red") +
+  geom_line(data = MuertesArgentina, aes( x = fecha, y=muertes), color = "blue") +
+  xlab('Fecha') +
+  ylab('Movilidad') +
+  scale_x_date(date_breaks = "15 day", date_labels =  "%d %b") +
+  scale_y_continuous(sec.axis = sec_axis(~., name = "Fallecidos")) +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1, size = 7)) 
+print(p)
+```
+
+#Con desfasaje
+
+```{r}
+MovilidadArg<-zooreg(DSunico2$tasa, start=65, end=469, frequency =1, deltat=1)
+MuertesArg<-zooreg(DSunico2$muertes, start=41, end=469, frequency =1, deltat=1)
+
+autoplot(cbind(MovilidadArg, MuertesArg), facet= NULL)
+```
+```{r}
+# Comentarios finales: De acuerdo a los graficos expuestos, no es posible concluir correlacion alguna entre las variables analizadas. Por ende se deberan buscar otras posibles variables explicativas que puedan determinar una correlacion estadisticamente significativa.
+
+```
+
