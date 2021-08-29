@@ -1,0 +1,279 @@
+---
+title: "Ejercicio Workshop 3 - 27/03/2020"
+output:
+  html_document:
+    df_print: paged
+---
+
+Levanto DataSets
+
+```{r}
+setwd('C:/Users/user/Documents/doc matias/WorkshopEANT')
+```
+
+
+```{r}
+DS_entrenamiento <- read.csv(file = 'dataset_entrenamiento.csv', sep = ",", header = T, encoding = 'UTF-8')
+DS_test <- read.csv(file = 'dataset_Test.csv', sep = ",", header = T, encoding = 'UTF-8')
+
+#Análisis de los datos
+summary(DS_entrenamiento)
+
+```
+Modifico outliers
+
+```{r}
+quantile(DS_entrenamiento$ambientes, probs = c(seq(0, 1, 0.005)), na.rm = T)
+
+DS_entrenamiento$ambientes3 = ifelse (DS_entrenamiento$ambientes >=8, quantile(DS_entrenamiento$ambientes, probs = c(0,995), na.rm = T), DS_entrenamiento$ambientes)
+
+
+DS_entrenamiento$ambientes2 = ifelse (DS_entrenamiento$ambientes >8, 8, DS_entrenamiento$ambientes)
+DS_entrenamiento$habitaciones2 = ifelse (DS_entrenamiento$habitaciones >7, 7, DS_entrenamiento$habitaciones)
+DS_entrenamiento$banos2 = ifelse (DS_entrenamiento$banos >5, 5, DS_entrenamiento$banos)
+
+quantile(DS_entrenamiento$superficie, probs = c(seq(0, 1, 0.01)), na.rm = T)
+
+DS_entrenamiento2 <- subset(DS_entrenamiento, superficie >= 20)
+
+
+mean(DS_entrenamiento2$superficie[DS_entrenamiento2$ambientes == 7 & DS_entrenamiento2$superficie > 50] )
+
+
+                                     
+```
+   
+DS_entrenamiento2$superficie2 <- ifelse(DS_entrenamiento2$superficie == 20 & DS_entrenamiento2$ambientes2 == 7, mean(DS_entrenamiento2$superficie[DS_entrenamiento2$ambientes == 7 & DS_entrenamiento2$superficie > 50]), DS_entrenamiento2$superficie )
+
+                                        
+                                        ifelse(DS_entrenamiento2$superficie == 20 & DS_entrenamiento2$ambiente2 == 6,
+                                               mean(DS_entrenamiento2$superficie[DS_entrenamiento2$ambientes == 6]), 
+                                               ifelse(DS_entrenamiento2$superficie == 20 & DS_entrenamiento2$ambiente2 == 5,
+                                               mean(DS_entrenamiento2$superficie[DS_entrenamiento2$ambientes == 5]), 
+                                               ifelse(DS_entrenamiento2$superficie == 20 & DS_entrenamiento2$ambiente2 == 4,
+                                               mean(DS_entrenamiento2$superficie[DS_entrenamiento2$ambientes == 4]), 
+                                               ifelse(DS_entrenamiento2$superficie == 20 & DS_entrenamiento2$ambiente2 == 3,
+                                               mean(DS_entrenamiento2$superficie[DS_entrenamiento2$ambientes == 3]), 
+                                               DS_entrenamiento2$superficie )))))
+                                               
+```{r}
+medianasup <- aggregate(superficie ~ ambientes2, data = DS_entrenamiento2, FUN = 'median' )
+
+medianasup
+
+DS_entrenamiento2$superficie2 <- ifelse(DS_entrenamiento2$superficie == 20 & DS_entrenamiento2$ambientes2 == 7, medianasup[7,2], DS_entrenamiento2$superficie)
+DS_entrenamiento2$superficie2 <- ifelse(DS_entrenamiento2$superficie == 20 & DS_entrenamiento2$ambientes2 == 5, medianasup[5,2], DS_entrenamiento2$superficie2)
+DS_entrenamiento2$superficie2 <- ifelse(DS_entrenamiento2$superficie == 20 & DS_entrenamiento2$ambientes2 == 4, medianasup[4,2], DS_entrenamiento2$superficie2)
+DS_entrenamiento2$superficie2 <- ifelse(DS_entrenamiento2$superficie == 20 & DS_entrenamiento2$ambientes2 == 3, medianasup[3,2], DS_entrenamiento2$superficie2)
+
+summary(DS_entrenamiento2)
+
+quantile(DS_entrenamiento2$superficie, probs = c(seq(0, 1, 0.01)), na.rm = T)
+
+
+DS_entrenamiento2$metro_cuadrado <- DS_entrenamiento2$precio_dolares / DS_entrenamiento2$superficie2
+Promedio_Barrio = aggregate(metro_cuadrado~barrio, DS_entrenamiento2,FUN = "mean")
+Promedio_Barrio = Promedio_Barrio[order(-Promedio_Barrio$metro_cuadrado),]
+Promedio_Barrio
+DS_entrenamiento2$Barrio_Premium = ifelse(DS_entrenamiento2$barrio %in% c(head(Promedio_Barrio$barrio,14)),1,0)
+
+table(DS_entrenamiento2$barrio,DS_entrenamiento2$Barrio_Premium)
+
+DS_entrenamiento3 <- subset(DS_entrenamiento2, precio_dolares < 3500000)
+
+DS_entrenamiento3$barrio <- NULL
+DS_entrenamiento3$barrio_entero <- NULL
+DS_entrenamiento3$ambientes <- NULL
+DS_entrenamiento3$habitaciones <- NULL
+DS_entrenamiento3$superficie <- NULL
+DS_entrenamiento3$banos <- NULL
+
+DS_entrenamiento4 <- subset(select = DS_entrenamiento3[,!DS_entrenamiento3$extra])
+
+
+DS_entrenamiento4 <- subset(DS_entrenamiento3, select = -c(extra))
+
+
+
+
+```
+
+Entrenar el modelo
+
+
+```{r}
+
+
+fmla <- precio_dolares ~ habitaciones2 + ambientes2
+reg <- lm(precio_dolares ~ ., data = DS_entrenamiento4)
+summary(reg)
+
+
+reg2 <- lm(precio_dolares ~ latitud + longitud + tipo + indice_espacios_verdes + lineas_bus_cerca + ambientes2 + banos2 + superficie2, data = DS_entrenamiento4)
+summary(reg2)
+
+
+
+
+base_train$test = grepl("SUM", base_train$extra)
+```
+
+Modificar outliers de DF_test
+
+```{r}
+summary(DS_test)
+
+
+
+DS_test$ambientes2 = ifelse (DS_test$ambientes >8, 8, DS_test$ambientes)
+DS_test$habitaciones2 = ifelse (DS_test$habitaciones >7, 7, DS_test$habitaciones)
+DS_test$banos2 = DS_test$banos
+
+
+DS_test$superficie <- ifelse (DS_test$superficie < 20, 20, DS_test$superficie)
+
+
+
+DS_test$superficie2 <- ifelse(DS_test$superficie == 20 & DS_test$ambientes2 == 7, medianasup[7,2], DS_test$superficie)
+DS_test$superficie2 <- ifelse(DS_test$superficie == 20 & DS_test$ambientes2 == 5, medianasup[5,2], DS_test$superficie2)
+DS_test$superficie2 <- ifelse(DS_test$superficie == 20 & DS_test$ambientes2 == 4, medianasup[4,2], DS_test$superficie2)
+DS_test$superficie2 <- ifelse(DS_test$superficie == 20 & DS_test$ambientes2 == 3, medianasup[3,2], DS_test$superficie2)
+
+
+DS_test$features = grepl("SUM|Balcón|Parrilla|Gimnasio|Piscina|Cochera|Parking|Sauna|Hidromasaje|Solarium|Suite*", DS_test$extra)
+
+
+```
+
+
+
+```{r}
+generarArchivo <- function(modelo,dataset,archivo){
+  
+  write.table(data.frame(ID=dataset$id,
+                         precio_predicho=predict(modelo,dataset)),
+              file=archivo,
+              sep=',',
+              row.names = F,
+              col.names = T
+              )
+  
+}
+
+generarArchivo(reg2,DS_test,"archivo.csv")
+
+
+```
+
+Segundo intento
+
+```{r}
+#Pendiente: Extra y Barrio
+
+
+
+DS_entrenamiento3$features = grepl("SUM|Balcón|Parrilla|Gimnasio|Piscina|Cochera|Parking|Sauna|Hidromasaje|Solarium|Suite*", DS_entrenamiento3$extra)
+table(DS_entrenamiento3$features)
+
+DS_entrenamiento3$extra
+
+grepl("Puerta Blindada", DS_entrenamiento3$extra)
+grep("Cochera", DS_entrenamiento3$extra)
+grep("Parking", DS_entrenamiento3$extra)
+grep("Apto mascota", DS_entrenamiento3$extra)
+
+table(DS_entrenamiento3$features)
+
+
+DS_entrenamiento2$metro_cuadrado <- DS_entrenamiento2$precio_dolares / DS_entrenamiento2$superficie2
+Promedio_Barrio = aggregate(metro_cuadrado~barrio, DS_entrenamiento2,FUN = "mean")
+Promedio_Barrio = Promedio_Barrio[order(-Promedio_Barrio$metro_cuadrado),]
+Promedio_Barrio
+DS_entrenamiento2$Barrio_Premium = ifelse(DS_entrenamiento2$barrio %in% c(head(Promedio_Barrio$barrio,14)),1,0)
+
+table(DS_entrenamiento2$barrio,DS_entrenamiento2$Barrio_Premium)
+
+
+reg3 <- lm(precio_dolares ~ latitud + longitud + tipo + indice_espacios_verdes + lineas_bus_cerca + ambientes2 + banos2 + superficie2 + features, data = DS_entrenamiento3)
+summary(reg3)
+
+
+
+```
+
+
+
+```{r}
+
+generarArchivo <- function(modelo,dataset,archivo){
+  
+  write.table(data.frame(ID=dataset$id,
+                         precio_predicho=predict(modelo,dataset)),
+              file=archivo,
+              sep=',',
+              row.names = F,
+              col.names = T
+              )
+  
+}
+
+generarArchivo(reg3,DS_test,"archivo2.csv")
+```
+
+Tercer intento : Lasso
+
+```{r}
+
+#FALTA MODIFICAR PARA ESTE DATASET
+
+EXPLICATIVAS <- subset(DS_entrenamiento3, select = c(latitud , longitud , tipo , indice_espacios_verdes , indice_uso_suelo_comercia, indice_uso_suelo_residencial, lineas_bus_cerca , ambientes2 , banos2 , superficie2 , features))
+
+x <- as.matrix(EXPLICATIVAS[,]) # Removes class
+
+
+CLASE <- subset(Entrenamiento, select = c("Desc_Resp_Cerrada"))
+y <- as.double(as.matrix(CLASE[,])) 
+
+  
+                  
+                         
+# ESTIMO RIDGE REGRESSION Alpha = 0
+set.seed(3235)
+
+cv.ridge <- cv.glmnet(x, y, family='gaussian', alpha=0, standardize=TRUE)
+
+# Results
+
+plot(cv.ridge)
+
+print(cv.ridge)
+
+plot(cv.ridge$glmnet.fit, xvar="lambda", label=TRUE)
+
+cv.ridge$lambda.min
+coef(cv.ridge, s=cv.ridge$lambda.min)
+
+
+# ESTIMO LASSO REGRESSION Alpha = 1
+set.seed(99)
+cv.lasso <- cv.glmnet(x, y, family='gaussian', alpha=1, standardize=TRUE)
+
+# Results
+plot(cv.lasso)
+
+ print(cv.lasso)
+
+plot(cv.lasso$glmnet.fit, xvar="lambda", label=TRUE)
+
+cv.lasso$lambda.min
+
+coef(cv.lasso, s=cv.lasso$lambda.min)
+
+```
+
+
+
+
+
+
+
