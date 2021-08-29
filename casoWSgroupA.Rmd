@@ -1,0 +1,308 @@
+---
+title: "Worshop score banco"
+
+output:
+  
+  pdf_document: default
+---
+
+This is an [R Markdown](http://rmarkdown.rstudio.com) Notebook. When you execute code within the notebook, the results appear beneath the code. 
+
+Try executing this chunk by clicking the *Run* button within the chunk or by placing your cursor inside it and pressing *Ctrl+Shift+Enter*. 
+
+```{r}
+setwd('C:/Users/user/Documents/doc matias/WorkshopEANT')
+
+rm(list = ls())
+library(reshape)
+INFO_FINANCIERA <- read.csv(file = "Base Info Financiera.csv", sep = ";", header = T)
+ANSES <- read.csv(file = "Base info de ANSES.csv", sep = ";", header = T)
+TELEFONIA <- read.csv(file = "Base Info de Telefonía Movil.csv", sep = ";", header = T)
+CLIENTES <- read.csv(file = "Base Info de Clientes.csv", sep = ";", header = T)
+RESULTADO <- read.csv(file = "Base Resultado Campaña.csv", sep = ";", header = T)
+#### JOINEO BASES
+df_list <- list(INFO_FINANCIERA, CLIENTES, ANSES,TELEFONIA,RESULTADO)
+DataBase <- merge_recurse(df_list)
+str(df_list)
+
+```
+```{r}
+summary(DataBase)
+
+```
+```{r}
+ quantile(DataBase$DEUDA_SISTEMAFINANCIERO, probs = c(.75, .95,.99) , na.rm=TRUE)
+```
+
+#armAR CLASE de corresponder
+```{r}
+table(DataBase$HISTORIAL_ATRASO)
+
+```
+```{r}
+DataBase$HISTORIAL_ATRASO <- ifelse(DataBase$HISTORIAL_ATRASO == 'En el último año', 'En el ultimo año',DataBase$HISTORIAL_ATRASO )
+
+DataBase$HISTORIAL_ATRASO <- ifelse(DataBase$HISTORIAL_ATRASO == 'El ultimo mes', 'En el ultimo mes',DataBase$HISTORIAL_ATRASO )
+
+```
+
+```{r}
+DataBase$PROVINCIA <- NULL
+```
+
+```{r}
+DataBase$NACIONALIDAD <- NULL
+```
+
+##arboles
+```{r}
+quantile(DataBase$INGRESO_MENSUAL, probs = c(.75, .95,.99) , na.rm=TRUE)
+```
+```{r}
+DataBase$INGRESO_MENSUAL <- ifelse(DataBase$INGRESO_MENSUAL == '1000000', quantile( DataBase$INGRESO_MENSUAL, probs = c(.99) , na.rm=TRUE), DataBase$INGRESO_MENSUAL)
+```
+
+```{r}
+summary(DataBase$INGRESO_MENSUAL)
+```
+```{r}
+DataBase$INGRESO_FORMAL <- ifelse(DataBase$INGRESO_FORMAL == '1000000', quantile( DataBase$INGRESO_FORMAL, probs = c(.99) , na.rm=TRUE), DataBase$INGRESO_FORMAL)
+```
+
+```{r}
+summary(DataBase$INGRESO_FORMAL)
+```
+```{r}
+DataBase$HIJOS_MENORES <- ifelse(DataBase$HIJOS_MENORES >= 5, 5 , DataBase$HIJOS_MENORES)
+```
+
+```{r}
+table(DataBase$HIJOS_MENORES)
+```
+```{r}
+DataBase$DEUDA_SISTEMAFINANCIERO <- ifelse( is.na(DataBase$DEUDA_SISTEMAFINANCIERO),0,DataBase$DEUDA_SISTEMAFINANCIERO )
+```
+
+```{r}
+DataBase <- DataBase[DataBase$edad<110,]
+
+```
+
+```{r}
+summary(DataBase$DEUDA_SISTEMAFINANCIERO)
+```
+```{r}
+#target acepta tarj
+set.seed(3234)
+muestra <- floor(nrow(DataBase)* 0.8)
+enIndex <- sample(nrow(DataBase), muestra, replace = F) #Filas que van al subset de entrenamiento
+vaIndex <- seq_len(nrow(DataBase))[-enIndex]
+
+entrenamiento <- DataBase[enIndex,]
+validacion <- DataBase[vaIndex,]
+
+```
+
+entrenamiento$
+
+```{r}
+entrenamiento$TUVO_ATRASO_CON_LA_.TARJETA <- NULL
+```
+
+```{r}
+validacion$TUVO_ATRASO_CON_LA_.TARJETA <- NULL
+```
+
+```{r}
+library(rpart)
+```
+
+```{r}
+ arbol <- rpart(ACEPTO.TARJETA~ .,data=entrenamiento , method =  "class" )
+```
+
+```{r}
+summary(arbol)
+rpart.plot(arbol ,fallen.leaves = F, cex=0.5)
+```
+```{r}
+library(ROCR)
+validacion$Pred2 <- predict(arbol, validacion, type='prob')[,2]
+pred_lrr <- prediction(validacion$Pred2, validacion$ACEPTO.TARJETA)
+auc <- performance(pred_lrr,'auc')
+auc@y.values[[1]]
+
+
+```
+```{r}
+pred_lrr <- performance(prediction(validacion$Pred2, validacion$ACEPTO.TARJETA), 'tpr', 'fpr')
+plot(pred_lrr , col="pink" , main='ROC curve', lwd=4)
+```
+
+```{r}
+modelo <- glm(ACEPTO.TARJETA~ TIENE_CAJAAHORRO_SISTFIN + TIENE_PRESTAMO_SISTFIN + INGRESO_MENSUAL + JUBILADO +  PLANES.SOCIALES         , data=entrenamiento, family = binomial(link="logit"))
+```
+
+```{r}
+summary(modelo)
+```
+```{r}
+validacion$Pred2 <- predict(modelo, newdata=validacion, type='response')
+pred_lrr <- prediction(validacion$Pred2, validacion$ACEPTO.TARJETA)
+auc <- performance(pred_lrr,'auc')
+auc@y.values[[1]]
+```
+##random forest model
+```{r}
+library(gmodels)
+library(randomForest)
+library(ggplot2)
+rfNews()
+```
+
+
+```{r}
+set.seed(3234)
+RFmodel <- randomForest(ACEPTO.TARJETA~ TIENE_CAJAAHORRO_SISTFIN + TIENE_PRESTAMO_SISTFIN + INGRESO_MENSUAL + JUBILADO +  PLANES.SOCIALES, data=entrenamiento, method='rf', number=10, repeats=2  ) 
+```
+```{r}
+summary(RFmodel)
+```
+```{r}
+validacion$Pred3 <- predict(RFmodel, newdata=validacion, type='response')
+pred_lrr <- prediction(validacion$Pred3, validacion$ACEPTO.TARJETA)
+auc <- performance(pred_lrr,'auc')
+auc@y.values[[1]]
+```
+
+
+```{r}
+validacion$CLASE_pred <- ifelse(validacion$Pred2> .12,1,0)
+table(validacion$ACEPTO.TARJETA,validacion$CLASE_pred )
+```
+```{r}
+sum(diag(table(validacion$ACEPTO.TARJETA, validacion$CLASE_pred))/nrow(validacion))
+```
+
+
+
+```{r}
+tarjetaDS <- DataBase[DataBase$ACEPTO.TARJETA==1,]
+
+
+```
+
+```{r}
+set.seed(3234)
+muestra <- floor(nrow(tarjetaDS)* 0.8)
+enIndex <- sample(nrow(tarjetaDS), muestra, replace = F) #Filas que van al subset de entrenamiento
+vaIndex <- seq_len(nrow(tarjetaDS))[-enIndex]
+
+entrenamiento2 <- tarjetaDS[enIndex,]
+validacion2 <- tarjetaDS[vaIndex,]
+entrenamiento2$ACEPTO.TARJETA <- NULL
+```
+
+
+
+```{r}
+modelo2 <- glm(TUVO_ATRASO_CON_LA_.TARJETA~ .         , data=entrenamiento2, family = binomial(link="logit"))
+```
+
+```{r}
+summary(modelo2)
+```
+
+```{r}
+modelo2 <- glm(TUVO_ATRASO_CON_LA_.TARJETA~ TIENE_CAJAAHORRO_SISTFIN + TIENE_PRESTAMO_SISTFIN + INGRESO_MENSUAL + JUBILADO +  PLANES.SOCIALES         , data=entrenamiento2, family = binomial(link="logit"))
+```
+
+```{r}
+summary(modelo2)
+```
+```{r}
+validacion2$Pred2 <- predict(modelo2, newdata=validacion2, type='response')
+pred_lrr <- prediction(validacion2$Pred2, validacion2$TUVO_ATRASO_CON_LA_.TARJETA)
+auc <- performance(pred_lrr,'auc')
+auc@y.values[[1]]
+```
+##random forest2
+```{r}
+RFmodel2 <- randomForest(TUVO_ATRASO_CON_LA_.TARJETA~ TIENE_CAJAAHORRO_SISTFIN + TIENE_PRESTAMO_SISTFIN + INGRESO_MENSUAL + JUBILADO +  PLANES.SOCIALES         , data=entrenamiento2, method='rf', method='repeatedcv', number=5, repeats=2 )
+```
+```{r}
+summary(RFmodel2)
+```
+```{r}
+validacion2$Pred3 <- predict(RFmodel2, newdata=validacion2, type='response')
+pred_lrr <- prediction(validacion2$Pred3, validacion2$TUVO_ATRASO_CON_LA_.TARJETA)
+auc <- performance(pred_lrr,'auc')
+auc@y.values[[1]]
+```
+
+```{r}
+baseFINAL <- readRDS('base_test_ok.rds')
+```
+
+
+```{r}
+quantile(baseFINAL$DEUDA_SISTEMAFINANCIERO, probs = c(.75, .95,.99) , na.rm=TRUE)
+```
+```{r}
+summary(baseFINAL)
+```
+```{r}
+baseFINAL$PROVINCIA <- NULL
+baseFINAL$NACIONALIDAD <- NULL
+```
+
+```{r}
+baseFINAL$HISTORIAL_ATRASO <- ifelse(baseFINAL$HISTORIAL_ATRASO == 'En el último año', 'En el ultimo año',baseFINAL$HISTORIAL_ATRASO )
+
+baseFINAL$HISTORIAL_ATRASO <- ifelse(baseFINAL$HISTORIAL_ATRASO == 'El ultimo mes', 'En el ultimo mes',baseFINAL$HISTORIAL_ATRASO )
+```
+
+```{r}
+baseFINAL <- baseFINAL[baseFINAL$edad<110,]
+```
+
+```{r}
+baseFINAL$acepta <- predict(RFmodel, newdata=baseFINAL, type='response')
+```
+
+```{r}
+summary(baseFINAL$acepta)
+```
+```{r}
+baseFINAL$mora <- predict(RFmodel2, newdata = baseFINAL, type='response')
+```
+
+```{r}
+baseFINAL2 <- subset(baseFINAL, acepta >.30 & mora<.35)
+```
+
+```{r}
+baseFINAL3 <- baseFINAL2[order(baseFINAL2$mora),1]
+baseFINAL3 <- as.data.frame(baseFINAL3[1:100])
+```
+
+```{r}
+names(baseFINAL3) <- 'IDENTIFICADOR.CLIENTE'
+write.table(baseFINAL3, 'salidafinalRF.csv', row.names = FALSE, col.names = TRUE)
+
+```
+
+
+
+
+
+
+```{r}
+
+```
+
+Add a new chunk by clicking the *Insert Chunk* button on the toolbar or by pressing *Ctrl+Alt+I*.
+
+When you save the notebook, an HTML file containing the code and output will be saved alongside it (click the *Preview* button or press *Ctrl+Shift+K* to preview the HTML file).
+
+The preview shows you a rendered HTML copy of the contents of the editor. Consequently, unlike *Knit*, *Preview* does not run any R code chunks. Instead, the output of the chunk when it was last run in the editor is displayed.
